@@ -141,6 +141,8 @@
             <button class="btn-admin-act btn-orange" onclick="verifyFilledSeats()">【步驟三】一鍵與名冊核實比對</button>
             <button class="btn-admin-act btn-gray" onclick="clearVerificationStatus()">清除核實燈號</button>
             <button class="btn-admin-act btn-purple" onclick="exportCurrentClassSeats()">🖨️ 匯出當前座位表（存檔）</button>
+            
+            <button class="btn-admin-act btn-red" onclick="clearCurrentClassData()">🗑️ 徹底清除當前班期與所有劃位資料</button>
 
             <div class="report-box" id="adminReport"></div>
 
@@ -203,7 +205,7 @@
     </div>
 
 <script>
-    // ✅ 已經為您設定好 Firebase 網址
+    // ✅ 已設定 Firebase 網址
     const FIREBASE_URL = "https://seat-302-115552-default-rtdb.firebaseio.com";
 
     let currentPage = "student"; 
@@ -292,7 +294,7 @@
 
     function closeLoginModal() { document.getElementById("loginModal").style.display = "none"; }
 
-    // ★ 密碼同步：加入 ?t=時間戳記，強制打破瀏覽器快取，確保立刻抓到手機剛改的新密碼
+    // ★ 密碼同步：加入 ?t=時間戳記，強制打破瀏覽器快取
     async function submitLogin() {
         const inputPwd = document.getElementById("adminPasswordInput").value;
         
@@ -315,7 +317,6 @@
         }
     }
 
-    // ★ 密碼同步：變更密碼時，直接寫入雲端
     async function changeAdminPassword() {
         const newPwd = document.getElementById("newPasswordInput").value.trim();
         if (!newPwd) { alert("密碼不可為空！"); return; }
@@ -331,7 +332,7 @@
         }
     }
 
-    // ★ 403 教室專屬網格渲染 (9排 x 4欄，9-1為報到桌/志工席)
+    // ★ 403 教室專屬網格渲染
     function renderSeatsGrid() {
         document.getElementById("displayClassHeader").innerText = classHeaderTitle;
         const table = document.getElementById("classroomSeats");
@@ -425,7 +426,42 @@
         });
     }
 
-    // ★ 防竄改機制：判斷此裝置是否有權限修改該座位
+    // ★ 徹底清除前次班期及劃位資料功能
+    async function clearCurrentClassData() {
+        if (!currentClassID) {
+            alert("目前沒有載入任何班期！");
+            return;
+        }
+
+        const confirmMsg = `⚠️ 警告：確定要徹底清除班期「${currentClassID}」的所有資料嗎？\n這將刪除雲端所有學員的劃位紀錄與本機名冊，且無法復原！`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        try {
+            // 1. 清空雲端該班期資料
+            await fetch(`${FIREBASE_URL}/classes/${currentClassID}.json`, { method: 'DELETE' });
+
+            // 2. 清除 LocalStorage 內的標題與名冊
+            delete dbTitles[currentClassID];
+            delete dbRosters[currentClassID];
+            localStorage.setItem("seat_db_titles_403", JSON.stringify(dbTitles));
+            localStorage.setItem("seat_db_rosters_403", JSON.stringify(dbRosters));
+            localStorage.removeItem(`mySeat_403_${currentClassID}`); // 解除本機綁定
+
+            alert("✅ 班期資料已徹底清除！將自動回到空白首頁。");
+
+            // 3. 重新導向至乾淨首頁
+            const baseUrl = window.location.protocol + '//' + window.location.host + window.location.pathname;
+            window.location.href = baseUrl;
+
+        } catch (error) {
+            alert("清除失敗，請檢查網路連線！");
+            console.error(error);
+        }
+    }
+
+    // ★ 防竄改機制
     function handleSeatClick(seatCode) {
         if (!currentClassID) {
             alert("目前尚未由後台載入班期。請先由管理員至後台貼入名冊開班！");
