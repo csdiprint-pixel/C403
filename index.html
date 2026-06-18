@@ -337,7 +337,6 @@
 
     function openLoginModal() {
         if (currentPage === "student") {
-            // ★ 修改：檢查 sessionStorage 是否已經登入過
             if (sessionStorage.getItem("isAdminAuthed_403") === "true") {
                 document.getElementById("studentPage").classList.remove("active");
                 document.getElementById("adminPage").classList.add("active");
@@ -403,7 +402,6 @@
         } catch(e) { console.error("無法連線至雲端核對密碼"); }
 
         if (inputPwd === adminPassword) {
-            // ★ 修改：登入成功後寫入 Session
             sessionStorage.setItem("isAdminAuthed_403", "true");
             
             closeLoginModal();
@@ -442,15 +440,14 @@
         const table = document.getElementById("classroomSeats");
         let html = "";
 
-        // ★ 取出本機綁定的座位 & 確認當前是否為登入的管理員
         const myBookedSeat = localStorage.getItem(`mySeat_403_${currentClassID}`);
-        const isAdmin = sessionStorage.getItem("isAdminAuthed_403") === "true";
+        // ★ 修改處：不依賴 isAdmin，而是直接判斷目前是否在「前台畫面」
+        const isBackend = (currentPage === "admin");
 
         for (let row = 1; row <= 9; row++) {
             html += "<tr>";
             for (let col = 1; col <= 4; col++) {
                 if (row === 9 && col === 1) {
-                    // ★ 志工席保留 9-1 的顯示
                     html += `<td class="volunteer-seat">9-1<br>報到桌</td>`;
                 } else {
                     const seatCode = `${row}-${col}`;
@@ -462,13 +459,12 @@
                             tdClass = officialRoster.includes(name) ? "verified-match" : "verified-error";
                         }
                         
-                        // ★ 姓名遮罩邏輯：不是管理員，且不是自己綁定的座位
                         let displayName = name;
-                        if (!isAdmin && seatCode !== myBookedSeat) {
+                        // ★ 只要不是在管理員後台，且不是自己綁定的座位，就遮罩
+                        if (!isBackend && seatCode !== myBookedSeat) {
                             displayName = maskName(name);
                         }
 
-                        // ★ 渲染時保留座位編號
                         html += `<td class="${tdClass}" onclick="handleSeatClick('${seatCode}')">${seatCode}<br>${displayName}</td>`;
                     } else {
                         html += `<td onclick="handleSeatClick('${seatCode}')">${seatCode}</td>`;
