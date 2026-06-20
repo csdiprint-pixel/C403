@@ -7,6 +7,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    
     <style>
         :root {
             --border-color: #707070;
@@ -216,8 +218,8 @@
             </div>
             
             <div class="form-group">
-                <label>【步驟一】請上傳名冊檔案 (支援 Word / Excel)，系統將自動擷取：</label>
-                <input type="file" id="rosterFileInput" class="file-upload-input" accept=".doc, .docx, .xlsx, .xls, .csv">
+                <label>【步驟一】請上傳名冊檔案 (支援 Word / Excel / PDF)，系統將自動擷取：</label>
+                <input type="file" id="rosterFileInput" class="file-upload-input" accept=".doc, .docx, .xlsx, .xls, .csv, .pdf">
                 
                 <textarea id="rawRosterInput" rows="4" placeholder="檔案內容解析後會顯示於此，以便您核對。您也可以手動在此貼上文字..."></textarea>
             </div>
@@ -308,6 +310,9 @@
     </div>
 
 <script>
+    // 指定 PDF.js 的 Worker 核心路徑 (必須設定)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
     function escapeHTML(str) {
         if (!str) return "";
         return str.replace(/[&<>'"]/g, function(tag) {
@@ -333,7 +338,7 @@
     let studentFilledData = {}; 
 
     // ==========================================
-    // 檔案自動上傳與解析邏輯 (Word & Excel) - 包含 .doc 攔截
+    // 檔案自動上傳與解析邏輯 (Word, Excel, PDF)
     // ==========================================
     document.getElementById('rosterFileInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -344,6 +349,7 @@
         const outputBox = document.getElementById('rawRosterInput');
 
         outputBox.value = "⏳ 檔案讀取與解析中，請稍候...";
+        outputBox.placeholder = "檔案內容解析後會顯示於此，以便您核對。您也可以手動在此貼上文字...";
 
         // 處理新版 Word 文件 (.docx)
         if (fileName.endsWith('.docx')) {
@@ -355,21 +361,55 @@
                     })
                     .catch(function(err) {
                         outputBox.value = "";
-                        alert("Word 解析失敗，請確認檔案是否損毀或加密加密：" + err.message);
+                        alert("Word 解析失敗，請確認檔案是否損毀或被密碼保護：" + err.message);
                     });
             };
             reader.readAsArrayBuffer(file);
         } 
-        // 🛑 專屬攔截：處理舊版 Word 文件 (.doc) 的降級體驗
+        // 專屬攔截：處理舊版 Word 文件 (.doc) 
         else if (fileName.endsWith('.doc')) {
             outputBox.value = "";
             alert("⚠️ 系統偵測到舊版 Word (.doc) 格式！\n\n受限於網頁瀏覽器安全限制，系統無法「自動」解析舊版二進制檔案。\n\n👉 替代方案：\n請直接打開該檔案，將內容【全選並複製】，直接【貼在下方的文字方塊】中，系統一樣會幫您智能抓取姓名！");
-            
-            // 將游標自動跳到輸入框，並改變提示文字引導使用者
             outputBox.placeholder = "請將 .doc 檔案內的文字複製後，直接貼在這裡...";
             outputBox.focus(); 
-            
-            e.target.value = ''; // 清空上傳區，允許下次操作
+            e.target.value = ''; 
+        }
+        // ✨ 新增處理：PDF 檔案自動文字解析 (.pdf)
+        else if (fileName.endsWith('.pdf')) {
+            reader.onload = function(event) {
+                const typedarray = new Uint8Array(event.target.result);
+                
+                // 載入 PDF 文件
+                pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+                    let promises = [];
+                    
+                    // 迴圈讀取每一頁的文字內容
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        promises.push(
+                            pdf.getPage(i).then(function(page) {
+                                return page.getTextContent().then(function(textContent) {
+                                    // 結合頁面內所有文字片段
+                                    return textContent.items.map(item => item.str).join(' ');
+                                });
+                            })
+                        );
+                    }
+                    
+                    // 當所有頁面讀取完畢
+                    Promise.all(promises).then(function(pagesText) {
+                        outputBox.value = pagesText.join('\n');
+                        alert("✅ PDF 檔案文字讀取成功！\n\n系統已將文字解析到下方框內。請確認內容後，點擊【步驟二】建立班期。\n\n(提示：若上傳的 PDF 是「掃描發票/純圖片格式」，可能無法自動辨識文字，需改用複製貼上)");
+                    }).catch(function(err) {
+                        outputBox.value = "";
+                        alert("PDF 內容擷取失敗：" + err.message);
+                    });
+                    
+                }).catch(function(err) {
+                    outputBox.value = "";
+                    alert("PDF 檔案讀取失敗，請確認是否損毀或加密：" + err.message);
+                });
+            };
+            reader.readAsArrayBuffer(file);
         }
         // 處理 Excel 文件 (.xlsx, .xls) 或 CSV
         else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
@@ -381,11 +421,9 @@
                     
                     workbook.SheetNames.forEach(sheetName => {
                         const sheet = workbook.Sheets[sheetName];
-                        // 轉出 CSV 格式文字
                         fullText += XLSX.utils.sheet_to_csv(sheet) + "\n";
                     });
                     
-                    // 將逗號轉為空白，讓後續的抓取邏輯能順利切割
                     fullText = fullText.replace(/,/g, "  "); 
                     outputBox.value = fullText;
                     
@@ -398,7 +436,7 @@
             reader.readAsArrayBuffer(file);
         } else {
             outputBox.value = "";
-            alert("⚠️ 不支援的檔案格式！\n請上傳 .doc, .docx, .xlsx, .xls 或 .csv 的檔案。");
+            alert("⚠️ 不支援的檔案格式！\n請上傳 .doc, .docx, .xlsx, .xls, .csv 或 .pdf 的檔案。");
             e.target.value = '';
         }
     });
@@ -618,7 +656,6 @@
             html += "<tr>";
             for (let col = 1; col <= 4; col++) {
                 
-                // 渲染 403 教室座位
                 if (row === 9 && col === 1) {
                     html += `<td class="volunteer-seat">9-1<br>報到桌</td>`;
                 } else {
@@ -637,7 +674,6 @@
                     }
                 }
 
-                // ★ 精準走道邏輯：在第1, 2, 3欄後方加上走道 (共3行)
                 if (col === 1 || col === 2 || col === 3) {
                     html += `<td class="aisle"></td>`;
                 }
@@ -652,13 +688,11 @@
         if (!text.trim()) { alert("請先上傳檔案或貼入名冊內容！"); return; }
 
         try {
-            // 1. 擷取班期代碼與名稱
             let classCode = "000000";
             let className = "新研習班期";
             const codeMatch = text.match(/(\d{6})[「"']?([^「」"'\s]+)[開班]?[」"']?/);
             if (codeMatch) { classCode = codeMatch[1]; className = `「${codeMatch[2]}」`; }
 
-            // 2. 擷取日期
             let formattedDate = "";
             const dateMatch = text.match(/受訓日期：(\d+)年(\d+)月(\d+)日/);
             if (dateMatch) {
@@ -672,9 +706,8 @@
             currentClassID = classCode;
             classHeaderTitle = `${classCode}${className}-${formattedDate}`;
 
-            // 3. 全新智能解析邏輯：結構化斷點回溯法
             const nameSet = new Set();
-            const nameRegex = /^[\u4e00-\u9fa5]{2,4}$/; // 姓名長度限制為 2~4 個中文字
+            const nameRegex = /^[\u4e00-\u9fa5]{2,4}$/; 
             const excludeHeaders = ["姓名", "座號", "機關", "機關學校", "職稱", "單位", "備註", "受訓日期", "簽到"];
 
             const tokens = text.split(/[\s\t\n\r,，、]+/);
@@ -684,7 +717,6 @@
                 const token = tokens[i].trim();
                 if (!token) continue;
 
-                // 只要遇到「純數字」(代表座號或序號)，就往前結算上一個人的資料
                 if (/^\d+$/.test(token)) {
                     if (buffer.length > 0) {
                         const possibleName = buffer[buffer.length - 1];
@@ -692,13 +724,12 @@
                             nameSet.add(possibleName);
                         }
                     }
-                    buffer = []; // 清空準備裝下一人
+                    buffer = []; 
                 } else {
                     buffer.push(token);
                 }
             }
             
-            // 結算最後一筆資料
             if (buffer.length > 0) {
                 const possibleName = buffer[buffer.length - 1];
                 if (nameRegex.test(possibleName) && !excludeHeaders.includes(possibleName)) {
@@ -713,7 +744,6 @@
                 return;
             }
 
-            // 4. 存檔與同步
             dbTitles[currentClassID] = classHeaderTitle;
             dbRosters[currentClassID] = officialRoster;
             
@@ -746,7 +776,7 @@
 
     async function clearCurrentClassData() {
         if (!currentClassID) {
-            alert("目前沒有載入任何班期！");
+            alert("目前沒有載入 any 班期！");
             return;
         }
 
@@ -763,7 +793,6 @@
             localStorage.removeItem(`mySeat_403_${currentClassID}`); 
 
             alert("✅ 班期資料已徹底清除！將自動回到乾淨首頁。");
-
             window.location.replace(window.location.pathname);
 
         } catch (error) {
